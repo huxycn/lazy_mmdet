@@ -6,6 +6,8 @@ from mmcv.runner import BaseModule, auto_fp16
 
 from ..builder import NECKS
 
+from mmcv.cnn import XavierInit
+
 
 @NECKS.register_module()
 class FPN(BaseModule):
@@ -72,9 +74,9 @@ class FPN(BaseModule):
                  norm_cfg=None,
                  act_cfg=None,
                  upsample_cfg=dict(mode='nearest'),
-                 init_cfg=dict(
-                     type='Xavier', layer='Conv2d', distribution='uniform')):
+                 init_cfg=XavierInit(layer='Conv2d', distribution='uniform')):
         super(FPN, self).__init__(init_cfg)
+        in_channels = list(in_channels)
         assert isinstance(in_channels, list)
         self.in_channels = in_channels
         self.out_channels = out_channels

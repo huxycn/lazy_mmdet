@@ -3,12 +3,15 @@ import warnings
 
 import torch.nn as nn
 import torch.utils.checkpoint as cp
-from mmcv.cnn import build_conv_layer, build_norm_layer, build_plugin_layer
+from mmcv.cnn import build_conv_layer, build_plugin_layer
+from mmcv.cnn.bricks.norm import NormBuilder
 from mmcv.runner import BaseModule
 from torch.nn.modules.batchnorm import _BatchNorm
 
 from ..builder import BACKBONES
 from ..utils import ResLayer
+
+
 
 
 class BasicBlock(BaseModule):
@@ -23,7 +26,7 @@ class BasicBlock(BaseModule):
                  style='pytorch',
                  with_cp=False,
                  conv_cfg=None,
-                 norm_cfg=dict(type='BN'),
+                 norm_builder=NormBuilder(norm_type=nn.BatchNorm2d),
                  dcn=None,
                  plugins=None,
                  init_cfg=None):
@@ -31,8 +34,8 @@ class BasicBlock(BaseModule):
         assert dcn is None, 'Not implemented yet.'
         assert plugins is None, 'Not implemented yet.'
 
-        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
+        self.norm1_name, norm1 = norm_builder.build(planes, postfix=1)
+        self.norm2_name, norm2 = norm_builder.build(planes, postfix=2)
 
         self.conv1 = build_conv_layer(
             conv_cfg,
@@ -106,7 +109,7 @@ class Bottleneck(BaseModule):
                  style='pytorch',
                  with_cp=False,
                  conv_cfg=None,
-                 norm_cfg=dict(type='BN'),
+                 norm_builder=NormBuilder(norm_type=nn.BatchNorm2d),
                  dcn=None,
                  plugins=None,
                  init_cfg=None):
@@ -130,7 +133,7 @@ class Bottleneck(BaseModule):
         self.style = style
         self.with_cp = with_cp
         self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
+        self.norm_builder = norm_builder
         self.dcn = dcn
         self.with_dcn = dcn is not None
         self.plugins = plugins
@@ -158,10 +161,10 @@ class Bottleneck(BaseModule):
             self.conv1_stride = stride
             self.conv2_stride = 1
 
-        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
-        self.norm3_name, norm3 = build_norm_layer(
-            norm_cfg, planes * self.expansion, postfix=3)
+        self.norm1_name, norm1 = self.norm_builder.build(planes, postfix=1)
+        self.norm2_name, norm2 = self.norm_builder.build(planes, postfix=2)
+        self.norm3_name, norm3 = self.norm_builder.build(
+            planes * self.expansion, postfix=3)
 
         self.conv1 = build_conv_layer(
             conv_cfg,
@@ -380,7 +383,7 @@ class ResNet(BaseModule):
                  avg_down=False,
                  frozen_stages=-1,
                  conv_cfg=None,
-                 norm_cfg=dict(type='BN', requires_grad=True),
+                 norm_builder=NormBuilder(norm_type=nn.BatchNorm2d, requires_grad=True),
                  norm_eval=True,
                  dcn=None,
                  stage_with_dcn=(False, False, False, False),
@@ -388,21 +391,21 @@ class ResNet(BaseModule):
                  with_cp=False,
                  zero_init_residual=True,
                  pretrained=None,
-                 init_cfg=None):
-        super(ResNet, self).__init__(init_cfg)
+                 init_method=None):
+        super(ResNet, self).__init__(init_method)
         self.zero_init_residual = zero_init_residual
         if depth not in self.arch_settings:
             raise KeyError(f'invalid depth {depth} for resnet')
 
         block_init_cfg = None
-        assert not (init_cfg and pretrained), \
+        assert not (init_method and pretrained), \
             'init_cfg and pretrained cannot be specified at the same time'
         if isinstance(pretrained, str):
             warnings.warn('DeprecationWarning: pretrained is deprecated, '
                           'please use "init_cfg" instead')
             self.init_cfg = dict(type='Pretrained', checkpoint=pretrained)
         elif pretrained is None:
-            if init_cfg is None:
+            if init_method is None:
                 self.init_cfg = [
                     dict(type='Kaiming', layer='Conv2d'),
                     dict(
@@ -442,7 +445,7 @@ class ResNet(BaseModule):
         self.avg_down = avg_down
         self.frozen_stages = frozen_stages
         self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
+        self.norm_builder = norm_builder
         self.with_cp = with_cp
         self.norm_eval = norm_eval
         self.dcn = dcn
@@ -477,7 +480,7 @@ class ResNet(BaseModule):
                 avg_down=self.avg_down,
                 with_cp=with_cp,
                 conv_cfg=conv_cfg,
-                norm_cfg=norm_cfg,
+                norm_builder=norm_builder,
                 dcn=dcn,
                 plugins=stage_plugins,
                 init_cfg=block_init_cfg)
@@ -573,7 +576,7 @@ class ResNet(BaseModule):
                     stride=2,
                     padding=1,
                     bias=False),
-                build_norm_layer(self.norm_cfg, stem_channels // 2)[1],
+                self.norm_builder.build(stem_channels // 2)[1],
                 nn.ReLU(inplace=True),
                 build_conv_layer(
                     self.conv_cfg,
@@ -583,7 +586,7 @@ class ResNet(BaseModule):
                     stride=1,
                     padding=1,
                     bias=False),
-                build_norm_layer(self.norm_cfg, stem_channels // 2)[1],
+                self.norm_builder.build(stem_channels // 2)[1],
                 nn.ReLU(inplace=True),
                 build_conv_layer(
                     self.conv_cfg,
@@ -593,7 +596,7 @@ class ResNet(BaseModule):
                     stride=1,
                     padding=1,
                     bias=False),
-                build_norm_layer(self.norm_cfg, stem_channels)[1],
+                self.norm_builder.build(stem_channels)[1],
                 nn.ReLU(inplace=True))
         else:
             self.conv1 = build_conv_layer(
@@ -604,8 +607,7 @@ class ResNet(BaseModule):
                 stride=2,
                 padding=3,
                 bias=False)
-            self.norm1_name, norm1 = build_norm_layer(
-                self.norm_cfg, stem_channels, postfix=1)
+            self.norm1_name, norm1 = self.norm_builder.build(stem_channels, postfix=1)
             self.add_module(self.norm1_name, norm1)
             self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)

@@ -209,10 +209,15 @@ def main():
     meta['seed'] = seed
     meta['exp_name'] = osp.basename(args.config)
 
-    model = build_detector(
-        cfg.model,
-        train_cfg=cfg.get('train_cfg'),
-        test_cfg=cfg.get('test_cfg'))
+    # model = build_detector(
+    #     cfg.model,
+    #     train_cfg=cfg.get('train_cfg'),
+    #     test_cfg=cfg.get('test_cfg'))
+
+    from lazyconfig import LazyConfig, instantiate
+    _cfg = LazyConfig.load('/mnt/disk/Code/lazy_mmdet/mmdetection-2.25.2/configsL/_base_/models/retinanet_r50_fpn.py')
+    model = instantiate(_cfg.model)
+
     model.init_weights()
 
     datasets = [build_dataset(cfg.data.train)]

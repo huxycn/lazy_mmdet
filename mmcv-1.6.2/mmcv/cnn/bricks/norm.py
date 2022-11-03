@@ -95,12 +95,7 @@ def build_norm_layer(cfg: Dict,
     if 'type' not in cfg:
         raise KeyError('the cfg dict must contain the key "type"')
     cfg_ = cfg.copy()
-
-    layer_type = cfg_.pop('type')
-    if layer_type not in NORM_LAYERS:
-        raise KeyError(f'Unrecognized norm type {layer_type}')
-
-    norm_layer = NORM_LAYERS.get(layer_type)
+    norm_layer = cfg_.pop('type')
     abbr = infer_abbr(norm_layer)
 
     assert isinstance(postfix, (int, str))
@@ -108,9 +103,10 @@ def build_norm_layer(cfg: Dict,
 
     requires_grad = cfg_.pop('requires_grad', True)
     cfg_.setdefault('eps', 1e-5)
-    if layer_type != 'GN':
+    if norm_layer is not nn.GroupNorm:
+        cfg_.pop('num_groups')
         layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN' and hasattr(layer, '_specify_ddp_gpu_num'):
+        if norm_layer is nn.SyncBatchNorm and hasattr(layer, '_specify_ddp_gpu_num'):
             layer._specify_ddp_gpu_num(1)
     else:
         assert 'num_groups' in cfg_
@@ -135,7 +131,7 @@ def is_norm(layer: nn.Module,
     """
     if exclude is not None:
         if not isinstance(exclude, tuple):
-            exclude = (exclude, )
+            exclude = (exclude,)
         if not is_tuple_of(exclude, type):
             raise TypeError(
                 f'"exclude" must be either None or type or a tuple of types, '
@@ -146,3 +142,19 @@ def is_norm(layer: nn.Module,
 
     all_norm_bases = (_BatchNorm, _InstanceNorm, nn.GroupNorm, nn.LayerNorm)
     return isinstance(layer, all_norm_bases)
+
+
+class NormBuilder:
+    def __init__(self, norm_type=nn.BatchNorm2d, requires_grad=True, num_groups=None):
+        self.norm_type = norm_type
+        self.requires_grad = requires_grad
+        self.num_groups = num_groups
+
+    def build(self,
+              num_features: int,
+              postfix: Union[int, str] = '') -> Tuple[str, nn.Module]:
+        return build_norm_layer({
+            'type': self.norm_type,
+            'requires_grad': self.requires_grad,
+            'num_groups': self.num_groups
+        }, num_features, postfix)

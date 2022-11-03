@@ -12,6 +12,9 @@ from ..builder import HEADS, build_loss
 from .base_dense_head import BaseDenseHead
 from .dense_test_mixins import BBoxTestMixin
 
+from lazyconfig import instantiate
+
+from mmcv.cnn import NormalInit
 
 @HEADS.register_module()
 class AnchorHead(BaseDenseHead, BBoxTestMixin):
@@ -59,12 +62,12 @@ class AnchorHead(BaseDenseHead, BBoxTestMixin):
                      type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
                  train_cfg=None,
                  test_cfg=None,
-                 init_cfg=dict(type='Normal', layer='Conv2d', std=0.01)):
-        super(AnchorHead, self).__init__(init_cfg)
+                 init_method=NormalInit(layer='Conv2d', std=0.01)):
+        super(AnchorHead, self).__init__(init_method)
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.feat_channels = feat_channels
-        self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
+        self.use_sigmoid_cls = loss_cls.use_sigmoid
         if self.use_sigmoid_cls:
             self.cls_out_channels = num_classes
         else:
@@ -74,42 +77,49 @@ class AnchorHead(BaseDenseHead, BBoxTestMixin):
             raise ValueError(f'num_classes={num_classes} is too small')
         self.reg_decoded_bbox = reg_decoded_bbox
 
-        self.bbox_coder = build_bbox_coder(bbox_coder)
-        self.loss_cls = build_loss(loss_cls)
-        self.loss_bbox = build_loss(loss_bbox)
+        self.bbox_coder = bbox_coder
+        self.loss_cls = loss_cls
+        self.loss_bbox = loss_bbox
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
         if self.train_cfg:
-            self.assigner = build_assigner(self.train_cfg.assigner)
-            if hasattr(self.train_cfg,
-                       'sampler') and self.train_cfg.sampler.type.split(
-                           '.')[-1] != 'PseudoSampler':
-                self.sampling = True
-                sampler_cfg = self.train_cfg.sampler
-                # avoid BC-breaking
-                if loss_cls['type'] in [
-                        'FocalLoss', 'GHMC', 'QualityFocalLoss'
-                ]:
-                    warnings.warn(
-                        'DeprecationWarning: Determining whether to sampling'
-                        'by loss type is deprecated, please delete sampler in'
-                        'your config when using `FocalLoss`, `GHMC`, '
-                        '`QualityFocalLoss` or other FocalLoss variant.')
-                    self.sampling = False
-                    sampler_cfg = dict(type='PseudoSampler')
-            else:
-                self.sampling = False
-                sampler_cfg = dict(type='PseudoSampler')
-            self.sampler = build_sampler(sampler_cfg, context=self)
+            self.set_train_cfg(self.train_cfg)
         self.fp16_enabled = False
 
-        self.prior_generator = build_prior_generator(anchor_generator)
+        self.prior_generator = anchor_generator
 
         # Usually the numbers of anchors for each level are the same
         # except SSD detectors. So it is an int in the most dense
         # heads but a list of int in SSDHead
         self.num_base_priors = self.prior_generator.num_base_priors[0]
         self._init_layers()
+
+    def set_train_cfg(self, train_cfg):
+        self.train_cfg = train_cfg
+        self.assigner = instantiate(train_cfg.assigner)
+        if hasattr(self.train_cfg,
+                   'sampler') and self.train_cfg.sampler.type.split(
+                       '.')[-1] != 'PseudoSampler':
+            self.sampling = True
+            sampler_cfg = self.train_cfg.sampler
+            # avoid BC-breaking
+            if self.loss_cls['type'] in [
+                    'FocalLoss', 'GHMC', 'QualityFocalLoss'
+            ]:
+                warnings.warn(
+                    'DeprecationWarning: Determining whether to sampling'
+                    'by loss type is deprecated, please delete sampler in'
+                    'your config when using `FocalLoss`, `GHMC`, '
+                    '`QualityFocalLoss` or other FocalLoss variant.')
+                self.sampling = False
+                sampler_cfg = dict(type='PseudoSampler')
+        else:
+            self.sampling = False
+            sampler_cfg = dict(type='PseudoSampler')
+        self.sampler = build_sampler(sampler_cfg, context=self)
+
+    def set_test_cfg(self, test_cfg):
+        self.test_cfg = test_cfg
 
     @property
     def num_anchors(self):

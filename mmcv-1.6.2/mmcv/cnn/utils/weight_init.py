@@ -145,8 +145,12 @@ class BaseInit:
                  *,
                  bias: float = 0,
                  bias_prob: Optional[float] = None,
-                 layer: Union[str, List, None] = None):
+                 layer: Union[str, List, None] = None,
+                 override=None,
+                 name=None):
         self.wholemodule = False
+        self.override = override
+        self.name = name
         if not isinstance(bias, (int, float)):
             raise TypeError(f'bias must be a number, but got a {type(bias)}')
 
@@ -499,6 +503,7 @@ class PretrainedInit:
         self.checkpoint = checkpoint
         self.prefix = prefix
         self.map_location = map_location
+        self.override = None
 
     def __call__(self, module: nn.Module) -> None:
         from mmcv.runner import (_load_checkpoint_with_prefix, load_checkpoint,
@@ -529,9 +534,9 @@ class PretrainedInit:
 
 
 def _initialize(module: nn.Module,
-                cfg: Dict,
+                init: object,
                 wholemodule: bool = False) -> None:
-    func = build_from_cfg(cfg, INITIALIZERS)
+    func = init
     # wholemodule flag is for override mode, there is no layer key in override
     # and initializer will give init values for the whole module with the name
     # in override.
@@ -539,29 +544,21 @@ def _initialize(module: nn.Module,
     func(module)
 
 
-def _initialize_override(module: nn.Module, override: Union[Dict, List],
+def _initialize_override(module: nn.Module, override: Union[object, List],
                          cfg: Dict) -> None:
-    if not isinstance(override, (dict, list)):
+    if not isinstance(override, (object, list)):
         raise TypeError(f'override must be a dict or a list of dict, \
                 but got {type(override)}')
 
-    override = [override] if isinstance(override, dict) else override
+    override = [override] if isinstance(override, object) else override
 
     for override_ in override:
 
         cp_override = copy.deepcopy(override_)
-        name = cp_override.pop('name', None)
+        name = cp_override.name
         if name is None:
             raise ValueError('`override` must contain the key "name",'
                              f'but got {cp_override}')
-        # if override only has name key, it means use args in init_cfg
-        if not cp_override:
-            cp_override.update(cfg)
-        # if override has name key and other args except type key, it will
-        # raise error
-        elif 'type' not in cp_override.keys():
-            raise ValueError(
-                f'`override` need "type" key, but got {cp_override}')
 
         if hasattr(module, name):
             _initialize(getattr(module, name), cp_override, wholemodule=True)
@@ -570,7 +567,7 @@ def _initialize_override(module: nn.Module, override: Union[Dict, List],
                                f'but init_cfg is {cp_override}.')
 
 
-def initialize(module: nn.Module, init_cfg: Union[Dict, List[dict]]) -> None:
+def initialize(module: nn.Module, init_method: Union[object, List[object]]) -> None:
     r"""Initialize a module.
 
     Args:
@@ -619,25 +616,27 @@ def initialize(module: nn.Module, init_cfg: Union[Dict, List[dict]]) -> None:
         >>> init_cfg = dict(type='Pretrained',
                 checkpoint=url, prefix='backbone.')
     """
-    if not isinstance(init_cfg, (dict, list)):
+    if not isinstance(init_method, (object, list)):
         raise TypeError(f'init_cfg must be a dict or a list of dict, \
-                but got {type(init_cfg)}')
+                but got {type(init_method)}')
 
-    if isinstance(init_cfg, dict):
-        init_cfg = [init_cfg]
+    if isinstance(init_method, object):
+        init_method = [init_method]
 
-    for cfg in init_cfg:
+    for init in init_method:
         # should deeply copy the original config because cfg may be used by
         # other modules, e.g., one init_cfg shared by multiple bottleneck
         # blocks, the expected cfg will be changed after pop and will change
         # the initialization behavior of other modules
-        cp_cfg = copy.deepcopy(cfg)
-        override = cp_cfg.pop('override', None)
-        _initialize(module, cp_cfg)
+        cp_init = copy.deepcopy(init)
+        override = cp_init.override
+        # cp_init.override = None
+        _initialize(module, cp_init)
 
         if override is not None:
-            cp_cfg.pop('layer', None)
-            _initialize_override(module, override, cp_cfg)
+            # cp_cfg.pop('layer', None)
+            cp_init.layer = None
+            _initialize_override(module, override, cp_init)
         else:
             # All attributes in module have same initialization.
             pass

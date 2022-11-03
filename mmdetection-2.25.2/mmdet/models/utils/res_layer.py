@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from mmcv.cnn import build_conv_layer, build_norm_layer
+from mmcv.cnn import build_conv_layer
+from mmcv.cnn.bricks.norm import NormBuilder
 from mmcv.runner import BaseModule, Sequential
 from torch import nn as nn
 
@@ -31,7 +32,7 @@ class ResLayer(Sequential):
                  stride=1,
                  avg_down=False,
                  conv_cfg=None,
-                 norm_cfg=dict(type='BN'),
+                 norm_builder=NormBuilder(norm_type=nn.BatchNorm2d),
                  downsample_first=True,
                  **kwargs):
         self.block = block
@@ -56,7 +57,7 @@ class ResLayer(Sequential):
                     kernel_size=1,
                     stride=conv_stride,
                     bias=False),
-                build_norm_layer(norm_cfg, planes * block.expansion)[1]
+                norm_builder.build(planes * block.expansion)[1]
             ])
             downsample = nn.Sequential(*downsample)
 
@@ -69,7 +70,7 @@ class ResLayer(Sequential):
                     stride=stride,
                     downsample=downsample,
                     conv_cfg=conv_cfg,
-                    norm_cfg=norm_cfg,
+                    norm_builder=norm_builder,
                     **kwargs))
             inplanes = planes * block.expansion
             for _ in range(1, num_blocks):
@@ -79,7 +80,7 @@ class ResLayer(Sequential):
                         planes=planes,
                         stride=1,
                         conv_cfg=conv_cfg,
-                        norm_cfg=norm_cfg,
+                        norm_builder=norm_builder,
                         **kwargs))
 
         else:  # downsample_first=False is for HourglassModule
@@ -90,7 +91,7 @@ class ResLayer(Sequential):
                         planes=inplanes,
                         stride=1,
                         conv_cfg=conv_cfg,
-                        norm_cfg=norm_cfg,
+                        norm_builder=norm_builder,
                         **kwargs))
             layers.append(
                 block(
@@ -99,7 +100,7 @@ class ResLayer(Sequential):
                     stride=stride,
                     downsample=downsample,
                     conv_cfg=conv_cfg,
-                    norm_cfg=norm_cfg,
+                    norm_builder=norm_builder,
                     **kwargs))
         super(ResLayer, self).__init__(*layers)
 
@@ -122,7 +123,7 @@ class SimplifiedBasicBlock(BaseModule):
                  style='pytorch',
                  with_cp=False,
                  conv_cfg=None,
-                 norm_cfg=dict(type='BN'),
+                 norm_builder=NormBuilder(norm_type=nn.BatchNorm2d),
                  dcn=None,
                  plugins=None,
                  init_fg=None):
@@ -130,8 +131,8 @@ class SimplifiedBasicBlock(BaseModule):
         assert dcn is None, 'Not implemented yet.'
         assert plugins is None, 'Not implemented yet.'
         assert not with_cp, 'Not implemented yet.'
-        self.with_norm = norm_cfg is not None
-        with_bias = True if norm_cfg is None else False
+        self.with_norm = norm_builder is not None
+        with_bias = True if norm_builder is None else False
         self.conv1 = build_conv_layer(
             conv_cfg,
             inplanes,
@@ -142,14 +143,13 @@ class SimplifiedBasicBlock(BaseModule):
             dilation=dilation,
             bias=with_bias)
         if self.with_norm:
-            self.norm1_name, norm1 = build_norm_layer(
-                norm_cfg, planes, postfix=1)
+            self.norm1_name, norm1 = norm_builder.build(planes, postfix=1)
             self.add_module(self.norm1_name, norm1)
         self.conv2 = build_conv_layer(
             conv_cfg, planes, planes, 3, padding=1, bias=with_bias)
         if self.with_norm:
-            self.norm2_name, norm2 = build_norm_layer(
-                norm_cfg, planes, postfix=2)
+            self.norm2_name, norm2 = norm_builder.build(
+                planes, postfix=2)
             self.add_module(self.norm2_name, norm2)
 
         self.relu = nn.ReLU(inplace=True)

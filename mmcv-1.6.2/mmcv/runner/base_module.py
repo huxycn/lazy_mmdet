@@ -5,9 +5,9 @@ from abc import ABCMeta
 from collections import defaultdict
 from logging import FileHandler
 from typing import Iterable, Optional
-
+import mmcv
 import torch.nn as nn
-
+# from mmcv.cnn.utils.weight_init import PretrainedInit
 from mmcv.runner.dist_utils import master_only
 from mmcv.utils.logging import get_logger, logger_initialized, print_log
 
@@ -30,7 +30,7 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
         init_cfg (dict, optional): Initialization config dict.
     """
 
-    def __init__(self, init_cfg: Optional[dict] = None):
+    def __init__(self, init_method: Optional[object] = None):
         """Initialize BaseModule, inherited from `torch.nn.Module`"""
 
         # NOTE init_cfg can be defined in different levels, but init_cfg
@@ -41,7 +41,7 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
         # in init_weights() function
         self._is_init = False
 
-        self.init_cfg = copy.deepcopy(init_cfg)
+        self.init_method = copy.deepcopy(init_method)
 
         # Backward compatibility in derived classes
         # if pretrained is not None:
@@ -99,17 +99,19 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
         from ..cnn.utils.weight_init import update_init_info
         module_name = self.__class__.__name__
         if not self._is_init:
-            if self.init_cfg:
+            if self.init_method:
                 print_log(
-                    f'initialize {module_name} with init_cfg {self.init_cfg}',
+                    f'initialize {module_name} with init_cfg {self.init_method}',
                     logger=logger_name)
-                initialize(self, self.init_cfg)
-                if isinstance(self.init_cfg, dict):
+                initialize(self, self.init_method)
+                if isinstance(self.init_method, object):
                     # prevent the parameters of
                     # the pre-trained model
                     # from being overwritten by
                     # the `init_weights`
-                    if self.init_cfg['type'] == 'Pretrained':
+                    # if self.init_cfg['type'] == 'Pretrained':
+                    #     return
+                    if isinstance(self.init_method, mmcv.cnn.PretrainedInit):
                         return
 
             for m in self.children():

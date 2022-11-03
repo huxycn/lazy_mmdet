@@ -5,6 +5,7 @@ from mmcv.cnn import ConvModule
 from ..builder import HEADS
 from .anchor_head import AnchorHead
 
+from mmcv.cnn import NormalInit
 
 @HEADS.register_module()
 class RetinaHead(AnchorHead):
@@ -38,12 +39,10 @@ class RetinaHead(AnchorHead):
                      scales_per_octave=3,
                      ratios=[0.5, 1.0, 2.0],
                      strides=[8, 16, 32, 64, 128]),
-                 init_cfg=dict(
-                     type='Normal',
+                 init_method=NormalInit(
                      layer='Conv2d',
                      std=0.01,
-                     override=dict(
-                         type='Normal',
+                     override=NormalInit(
                          name='retina_cls',
                          std=0.01,
                          bias_prob=0.01)),
@@ -55,7 +54,7 @@ class RetinaHead(AnchorHead):
             num_classes,
             in_channels,
             anchor_generator=anchor_generator,
-            init_cfg=init_cfg,
+            init_method=init_method,
             **kwargs)
 
     def _init_layers(self):
